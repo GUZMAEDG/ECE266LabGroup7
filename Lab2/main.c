@@ -27,37 +27,111 @@ static uint8_t seg7Coding[10] = {
         0b01011011,			// digit 2
         0b01001111,			// digit 3
         // MORE CODINGS
-        };
+        0b01100110,
+        0b01101101,
+        0b01111101,
+        0b00000111,
+        0b01111111,
+        0b01101111,
 
+        };
 // The colon status: if colon == 0b10000000, then the colon is on,
 // otherwise it is off.
 static uint8_t colon = 0;
 
-// Update the clock display
-void clockUpdate(uint32_t time)						// pointer to a 4-byte array
-{
-    uint8_t code[4];			// The 7-segment code for the four clock digits
+//these variables will hold the state for each digit of the display
+static unsigned short seconds = 0;
+static unsigned short tensOfSeconds = 0;
+static unsigned short minutes = 0;
+static unsigned short tensOfMinutes = 0;
+//if updateSeconds == 1, we will increment the seconds digit.
+static unsigned short updateSeconds = 0;
 
-    // Display 01:23 on the 7-segment displays
+
+void handleDigitUpdate() {
+
+    if(seconds >= 10) {
+        seconds = 0;
+        ++tensOfSeconds;
+    }
+
+    if(tensOfSeconds >= 6) {
+        tensOfSeconds = 0;
+        ++minutes;
+    }
+
+    if(minutes >= 10) {
+        minutes = 0;
+        ++tensOfMinutes;
+    }
+
+    if(tensOfMinutes >= 6) {
+        tensOfMinutes = 0;
+    }
+}
+
+// Update the clock display
+void
+clockUpdate(uint32_t time)                               // pointer to a 4-byte array
+{
+    uint8_t code[4];                                   // The 7-segment code for the four clock digits
+
+    if(updateSeconds == 1) {
+        ++seconds;
+    }
+    handleDigitUpdate();
+    // Display a clock on the 7 digit display.
     // The colon ':' will flash on and off every 0.5 seconds
-    code[0] = seg7Coding[3] + colon;
-    code[1] = seg7Coding[2] + colon;
-    code[2] = seg7Coding[1] + colon;
-    code[3] = seg7Coding[0] + colon;
+    code[0] = seg7Coding[seconds] + colon;
+    code[1] = seg7Coding[tensOfSeconds] + colon;
+    code[2] = seg7Coding[minutes] + colon;
+    code[3] = seg7Coding[tensOfMinutes] + colon;
     seg7Update(code);
 
     // Calculate the display digits and colon setting for the next update
-    if (colon == 0b00000000)
-    {
+    if (colon == 0b00000000) {
         colon = 0b10000000;
     }
-    else
-    {
+    else {
         colon = 0b00000000;
     }
 
-    // Call back after 1 second
+    if (updateSeconds == 1) {
+        updateSeconds = 0;
+    }
+    else {
+        ++updateSeconds;
+    }
+
+    // Call back after 1/2 second
     schdCallback(clockUpdate, time + 500);
+}
+
+// Event driven code for checking push button
+void
+checkPushButton(uint32_t time)
+{
+    int code = pbRead();
+    uint32_t delay;
+
+    switch (code) {
+        case 1:
+            ++minutes;
+            handleDigitUpdate();
+            delay = 250;                           // Use an inertia for soft debouncing
+            break;
+
+        case 2:
+            ++seconds;
+            handleDigitUpdate();
+            delay = 250;                           // Use an inertia for soft debouncing
+            break;
+
+        default:
+            delay = 10;
+    }
+
+    schdCallback(checkPushButton, time + delay);
 }
 
 int main(void)
@@ -70,10 +144,10 @@ int main(void)
     // Schedule the first callback events for LED flashing and push button checking.
     // Those trigger callback chains. The time unit is millisecond.
     schdCallback(clockUpdate, 1000);
+    schdCallback(checkPushButton, 1005);
 
     // Loop forever
-    while (true)
-    {
+    while (true) {
         schdExecute();
     }
 }
